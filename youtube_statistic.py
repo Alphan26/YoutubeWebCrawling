@@ -4,6 +4,11 @@ from tqdm import tqdm
 #import googleapiclient.discovery
 #import google_auth_oauthlib.flow
 import time
+import schedule
+import pandas as pd
+import datetime
+import os
+import matplotlib.pyplot as plt
 
 class YTstats:
 
@@ -11,7 +16,10 @@ class YTstats:
         self.api_key = api_key
         self.channel_id = channel_id
         self.channel_statistics = None
+        self.channel_views = None
         self.video_data = None
+        self.file_path  = 'subscriber_data.csv'
+        self.viewcount_path = "viewcount_path.csv"
 
     def extract_all(self):
         self.get_channel_statistics()
@@ -25,19 +33,91 @@ class YTstats:
         
         json_url = requests.get(url)
         data = json.loads(json_url.text)  # We convert the json data to dictionary.
-        print(data)
+        #print(type(int(data['items'][0]['statistics']['viewCount'])))
+        #print(int(data['items'][0]['statistics']['viewCount']))
         #time.sleep(999)
         try:
-            data = data['items'][0]['statistics']
+            data = int(data['items'][0]['statistics']['subscriberCount'])
+            view_count = int(data['items'][0]['statistics']['viewCount'])
             print(data)
         except KeyError:
             print('Could not get channel statistics')
             data = {}
 
         self.channel_statistics = data
+        self.channel_views = view_count
         pbar.update()
         pbar.close()
-        return data
+        return data,view_count
+    
+    def update_subscriber_data(self):
+        today = datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+        subscribers = self.get_channel_statistics()[0]
+
+        if subscribers is not None:
+            if os.path.exists(self.file_path):
+                df = pd.read_csv(self.file_path)
+            else:
+                df = pd.DataFrame(columns=['date', 'subscribers'])
+
+            new_data = pd.DataFrame({'date': [today], 'subscribers': [subscribers]})
+            
+            # Aynı saat ve dakikada tekrar kaydetmeyi önlemek için
+            if not any(df['date'].str.startswith(today[:16])):
+                df = pd.concat([df, new_data], ignore_index=True)
+                df.to_csv(self.file_path, index=False)
+                print(f"{today} tarihli abone sayısı ({subscribers}) başarıyla kaydedildi.")
+            else:
+                print(f"{today} tarihli abone sayısı zaten mevcut.")
+
+    def update_viewcount_data(self):
+        today = datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+        viewCount = self.get_channel_statistics()[-1]
+
+        if viewCount is not None:
+            if os.path.exists(self.viewcount_path):
+                df = pd.read_csv(self.viewcount_path)
+            else:
+                df = pd.DataFrame(columns=['date', 'View Count'])
+
+            new_data = pd.DataFrame({'date': [today], 'View Count': [viewCount]})
+            
+            # Aynı saat ve dakikada tekrar kaydetmeyi önlemek için
+            if not any(df['date'].str.startswith(today[:16])):
+                df = pd.concat([df, new_data], ignore_index=True)
+                df.to_csv(self.file_path, index=False)
+                print(f"{today} tarihli abone sayısı ({viewCount}) başarıyla kaydedildi.")
+            else:
+                print(f"{today} tarihli abone sayısı zaten mevcut.")
+
+    def plot_trend(self):
+        df = pd.read_csv(self.file_path)
+        if df.empty:
+            print("Veri bulunamadı. Lütfen önce veri toplayın.")
+            return
+
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.sort_values(by='date')
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(df['date'], df['subscribers'], marker='o', color='blue', label='Abone Sayısı')
+
+        # Trend çizgisi (Hareketli ortalama)
+        df['trend'] = df['subscribers'].rolling(window=3).mean()
+        plt.plot(df['date'], df['trend'], color='red', label='Trend (3 günlük ort.)')
+
+        # Veri noktalarının üzerine değerleri yazdırma
+        for x, y in zip(df['date'], df['subscribers']):
+            plt.text(x, y, f'{y}', fontsize=8, ha='right')
+
+        plt.title('Abone Sayısındaki Değişim (Trend Analizi)')
+        plt.xlabel('Tarih')
+        plt.ylabel('Abone Sayısı')
+        plt.xticks(rotation=45)
+        plt.grid()
+        plt.legend()
+        plt.show()
+
 
     def get_channel_video_data(self):
         "Extract all video information of the channel"
@@ -152,8 +232,13 @@ class YTstats:
 from youtube_statistic import YTstats
 import time
 API_KEY = "AIzaSyDVl3Bg1s24JstT6hFN07kO5hJrzUVDo0k"
-channel_id = ["UCDdqJTIKWAaCbROLnKZZHZQ"] 
-
+channel_id = ["UCE7DCT5ikgv55I_cxXN1gmA"] 
 yt = YTstats(API_KEY, channel_id[0])
-#yt.get_channel_video_data()
-yt
+
+schedule.every(2).minutes.do(yt.update_viewcount_data)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)  # CPU'yu zorlamamak için 1 saniye bekle
+
+#yt.plot_trend()

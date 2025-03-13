@@ -4,71 +4,79 @@ import json
 from googleapiclient.discovery import build
 import time
 
-comments_path = r"C:\Users\363860.SIBER\Desktop\YoutTube\JsonFiles\comments"
-API_KEY = "AIzaSyCMQ1wL_1PEGF7KyQu4zJKx7XrrStBF-VI "
+comments_path = r"comments"
+#API_KEY = "AIzaSyCMQ1wL_1PEGF7KyQu4zJKx7XrrStBF-VI "
 ytVideoList = ["https://www.youtube.com/watch?v=-0NwrcZOKhQ&t=645s"]
 # "https://www.youtube.com/watch?v=4XVfmGE1F_w","https://www.youtube.com/watch?v=rkyUubl4Wo0",
 
 
+from time import sleep
+import json
+from googleapiclient.discovery import build
+import re
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")
+ytVideoList = ["https://www.youtube.com/watch?v=-0NwrcZOKhQ"]
+
+def get_video_id(url):
+    match = re.search(r"v=([^&]+)", url)
+    if match:
+        return match.group(1)
+    return None
+
 def comment_crawler():
-    commentList= list()
-    youtube = build(f'youtube', 'v3', developerKey=f"{API_KEY}")
+    commentList = []
+    youtube = build('youtube', 'v3', developerKey=API_KEY)
 
     for video in ytVideoList:
-        video_id = video.split("=", -1)
-        video_id = video_id[1][0:-2]  # Get the last item
+        video_id = get_video_id(video)
+        if not video_id:
+            print(f"Invalid video URL: {video}")
+            continue
 
-      
-        
-
-    # if video_response['nextPageToken'] is not None:
-    #           video_response = youtube.commentThreads().list(
-    #                 part = 'snippet,replies',
-    #                 videoId = video_id
-    #             ).execute()
-    # else:
-    #     break
         video_response = youtube.commentThreads().list(
             part='snippet,replies',
-            videoId=f"{video_id}",
+            videoId=video_id,
             maxResults=100
         ).execute()
-        count = 0
-       
-        while (video_response['nextPageToken'] is not None):
-            if(video_response['nextPageToken'] is None):
-                print("You get all of the page tokens")
+
+        while 'nextPageToken' in video_response:
+            for item in video_response['items']:
+                # Ana yorumları al
+                comment = item['snippet']['topLevelComment']['snippet']['textDisplay']
+                commentList.append(comment)
+
+                # Alt yorumları al
+                if 'replies' in item:
+                    for reply in item['replies']['comments']:
+                        reply_text = reply['snippet']['textDisplay']
+                        commentList.append(reply_text)
+
+            # Bir sonraki sayfayı getir
+            next_page_token = video_response.get('nextPageToken')
+            if not next_page_token:
                 break
 
-            npt = video_response['nextPageToken']
-            print(npt)
-            print(count)
-            count += 1
             video_response = youtube.commentThreads().list(
                 part='snippet,replies',
                 videoId=video_id,
-                pageToken=npt
+                pageToken=next_page_token,
+                maxResults=100
             ).execute()
 
-            json_item_count = 0
-            for item in video_response['items']:
-                json_item_count += 1
-                print(json_item_count)
-                videoId = item['snippet']['videoId']
-                comment = item['snippet']['topLevelComment']['snippet']['textDisplay']
-                commentList.append(comment)
-                print(len(commentList))
-        
+        # Yorumları JSON dosyasına yazdır
+        final_comments = json.dumps(commentList, ensure_ascii=False, indent=4)
+        with open(f"{comments_path}\comments_{video_id}.json", "w", encoding="utf-8") as f:
+            f.write(final_comments)
 
-    time.sleep(9999)
-
-        # finalcomment = json.dumps(comment,ensure_ascii=False)
-        # with open(comments_path+f"/{json_item_count}_Comment_of_{videoId}.json","w", encoding="utf-8") as f:
-        #     f.write(finalcomment)
-        #     print(f"{json_item_count}. comment's json is okey")
-
+        print(f"Yorumlar {video_id}.json dosyasına kaydedildi.")
 
 comment_crawler()
+
 
 
 """"
